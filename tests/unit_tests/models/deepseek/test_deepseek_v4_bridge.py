@@ -394,3 +394,39 @@ class TestDeepSeekV4RotaryPercent:
             out = bridge.provider_bridge(hf_pretrained)
 
         assert out.rotary_percent == 1.0
+
+
+class TestDeepSeekV4ExportQuantizedSwitch:
+    def test_non_quantized_export_passes_weights_through(self):
+        from unittest.mock import MagicMock
+
+        from megatron.bridge.models.deepseek.deepseek_v4_bridge import DeepSeekV4Bridge
+
+        bridge = DeepSeekV4Bridge.__new__(DeepSeekV4Bridge)
+        bridge.export_quantized = False
+        weight = torch.randn(4, 4, dtype=torch.bfloat16)
+        converted = {"model.layers.0.mlp.weight": weight}
+        hf_state = {"model.layers.0.mlp.weight": weight, "model.layers.0.mlp.scale": torch.ones(1)}
+
+        out = bridge.maybe_modify_converted_hf_weight(MagicMock(), converted, hf_state)
+
+        assert set(out) == {"model.layers.0.mlp.weight"}
+        assert out["model.layers.0.mlp.weight"] is weight
+
+    def test_quantized_export_is_the_default(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from megatron.bridge.models.deepseek.deepseek_v4_bridge import DeepSeekV4Bridge
+
+        bridge = DeepSeekV4Bridge.__new__(DeepSeekV4Bridge)
+        assert bridge.export_quantized is True
+        called = {}
+
+        def fake_requantize(converted, hf_state, *, use_mxfp4=None):
+            called["hit"] = True
+            return {"quantized": torch.zeros(1)}
+
+        monkeypatch.setattr(quantization_utils, "requantize_hf_weight_scale_pairs", fake_requantize)
+        out = bridge.maybe_modify_converted_hf_weight(MagicMock(), {"a.weight": torch.ones(1)}, {})
+
+        assert called.get("hit") and "quantized" in out

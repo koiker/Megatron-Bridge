@@ -304,6 +304,15 @@ def main():
         default=1,
         help="Only every N-th rank writes files (reduces I/O, only with --distributed-save)",
     )
+    export_parser.add_argument(
+        "--no-quantized-export",
+        action="store_true",
+        help=(
+            "Export plain bf16 weights instead of re-creating the source repo's quantized "
+            "weight/scale layout (currently honored by the DeepSeek-V4 bridge). Use for SFT "
+            "products that need exact train/inference numerical parity."
+        ),
+    )
     args = parser.parse_args()
 
     if not args.command:
@@ -323,6 +332,10 @@ def main():
             distributed_timeout_minutes=args.distributed_timeout_minutes,
         )
     elif args.command == "export":
+        if args.no_quantized_export:
+            from megatron.bridge.models.deepseek.deepseek_v4_bridge import DeepSeekV4Bridge
+
+            DeepSeekV4Bridge.export_quantized = False
         export_megatron_to_hf(
             hf_model=args.hf_model,
             megatron_path=args.megatron_path,
