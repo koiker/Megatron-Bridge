@@ -335,10 +335,6 @@ class _ReplicatedOptional(ReplicatedMapping):
 class DeepSeekV4Bridge(MegatronModelBridge):
     """Megatron Bridge implementation for DeepSeek-V4 causal language models."""
 
-    # True: HF export re-creates the source repo's quantized weight/scale layout.
-    # False: export plain bf16 weights with no ``*.scale`` companions.
-    export_quantized: bool = True
-
     # ------------------------------------------------------------------
     # Provider configuration
     # ------------------------------------------------------------------
@@ -904,10 +900,16 @@ class DeepSeekV4Bridge(MegatronModelBridge):
         converted_weights_dict: Dict[str, torch.Tensor],
         hf_state_dict: Mapping[str, torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
-        """Recreate DSv4 quantized weight/scale pairs expected by the source shard index."""
-        del task
-        if not self.export_quantized:
-            return dict(converted_weights_dict)
+        """Recreate DSv4 quantized weight/scale pairs expected by the source shard index.
+
+        When ``task.weight_dtype`` is set, plain weights are emitted in that dtype
+        instead (no ``*.scale`` companions).
+        """
+        if task.weight_dtype is not None:
+            return {
+                name: (weight.to(task.weight_dtype) if weight.is_floating_point() else weight)
+                for name, weight in converted_weights_dict.items()
+            }
         return quantization_utils.requantize_hf_weight_scale_pairs(
             converted_weights_dict,
             hf_state_dict,
