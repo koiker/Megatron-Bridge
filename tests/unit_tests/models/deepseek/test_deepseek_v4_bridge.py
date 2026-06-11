@@ -55,7 +55,9 @@ def _by_megatron(registry):
 
 
 def _dummy_task():
-    return SimpleNamespace(param_name="", global_param_name="", mapping=None)
+    from megatron.bridge.models.conversion.model_bridge import WeightConversionTask
+
+    return WeightConversionTask(param_name="", global_param_name="", mapping=None)
 
 
 class TestNativeDeepSeekV4ConfigTranslation:
