@@ -19,7 +19,7 @@ import itertools
 import logging
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import (
     Any,
     Callable,
@@ -1256,8 +1256,8 @@ class MegatronModelBridge(
         if conversion_tasks is None:
             conversion_tasks = self.build_conversion_tasks(hf_pretrained, unwrapped_model_list)
         if weight_dtype is not None:
-            for conversion_task in conversion_tasks:
-                conversion_task.weight_dtype = weight_dtype
+            # WeightConversionTask is frozen — rebuild the tasks with the dtype set
+            conversion_tasks = [replace(task, weight_dtype=weight_dtype) for task in conversion_tasks]
 
         # Collect adapter conversion tasks when merge is requested
         adapter_tasks_by_base: Dict[str, List[AdapterWeightConversionTask]] = {}
