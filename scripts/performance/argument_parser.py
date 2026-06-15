@@ -364,6 +364,22 @@ def parse_cli_args():
     )
 
     # Slurm
+    # Platform / scheduler backend selection (factory dispatch in utils/executors.get_executor)
+    platform_args = parser.add_argument_group("Platform arguments")
+    platform_args.add_argument(
+        "--platform",
+        type=lower_str,
+        choices=["slurm", "runai", "dgxc", "local"],
+        default=os.getenv("PLATFORM", "slurm"),
+        help=(
+            "Execution backend to launch the experiment on. "
+            "'slurm' -> SlurmExecutor (default); "
+            "'runai' -> RunAICliExecutor (Run:ai `runai` CLI, interactive SSO login, NO app credentials); "
+            "'dgxc' -> DGXCloudExecutor (Run:ai REST API, requires app_id/app_secret); "
+            "'local' -> LocalExecutor (single node, torchrun). Can also be set via the PLATFORM env var."
+        ),
+    )
+
     slurm_args = parser.add_argument_group("Slurm arguments")
     slurm_args.add_argument(
         "-a",
@@ -497,6 +513,60 @@ def parse_cli_args():
         type=str,
         help="DGXCloud pvc mount path",
         required=False,
+    )
+
+    # Run:ai CLI (platform="runai"): submit via `runai training pytorch submit` (no app creds).
+    # Reuses --dgxc_project_name, --dgxc_pvc_claim_name and --dgxc_pvc_mount_path for project/PVC.
+    runai_args = parser.add_argument_group("Run:ai CLI arguments")
+    runai_args.add_argument(
+        "--runai_extended_resource",
+        dest="runai_extended_resources",
+        action="append",
+        default=None,
+        metavar="NAME=COUNT",
+        help="Repeatable. SR-IOV rail / extended resource to request per pod, e.g. "
+        "--runai_extended_resource nvidia.com/r0-p0=1 (needed for RoCE/GDR on Mayo B300).",
+    )
+    runai_args.add_argument(
+        "--runai_annotation",
+        dest="runai_annotations",
+        action="append",
+        default=None,
+        metavar="KEY=VALUE",
+        help="Repeatable. Pod annotation, e.g. --runai_annotation "
+        "k8s.v1.cni.cncf.io/networks=<multus-network> (RoCE rails).",
+    )
+    runai_args.add_argument(
+        "--runai_rails_on_master",
+        type=bool_arg,
+        default=True,
+        help="Also attach the extended resources to the master replica "
+        "(--master-extended-resource). Defaults to true.",
+    )
+    runai_args.add_argument(
+        "--runai_large_shm",
+        type=bool_arg,
+        default=True,
+        help="Pass --large-shm to runai submit (bigger /dev/shm for NCCL/UCX). Defaults to true.",
+    )
+    runai_args.add_argument(
+        "--runai_node_pools",
+        type=str,
+        default=None,
+        help="Optional Run:ai node pool(s) to target (runai --node-pools).",
+    )
+    runai_args.add_argument(
+        "--runai_extra_submit_arg",
+        dest="runai_extra_submit_args",
+        action="append",
+        default=None,
+        metavar="ARG",
+        help="Repeatable. Extra raw argument appended verbatim to the `runai` submit command.",
+    )
+    runai_args.add_argument(
+        "--runai_print_only",
+        action="store_true",
+        help="Build and print the `runai` submit command without submitting (preview/debug).",
     )
 
     # For performance

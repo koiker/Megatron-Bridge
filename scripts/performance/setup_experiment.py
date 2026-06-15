@@ -29,12 +29,12 @@ from nemo_run.config import get_nemorun_home
 try:
     from argument_parser import parse_cli_args
     from utils.evaluate import calc_convergence_and_performance
-    from utils.executors import dgxc_executor, slurm_executor
+    from utils.executors import dgxc_executor, get_executor, slurm_executor
     from utils.utils import get_exp_name_config, select_config_variant_interactive
 except (ImportError, ModuleNotFoundError):
     from .argument_parser import parse_cli_args
     from .utils.evaluate import calc_convergence_and_performance
-    from .utils.executors import dgxc_executor, slurm_executor
+    from .utils.executors import dgxc_executor, get_executor, slurm_executor
     from .utils.utils import get_exp_name_config, select_config_variant_interactive
 
 try:
@@ -252,9 +252,12 @@ def main(
     dgxc_project_name: str,
     dgxc_pvc_claim_name: str,
     dgxc_pvc_mount_path: str,
+    platform: str = "slurm",
     config_variant: str = "v1",
 ):
     """Sets up the experiment and runs it."""
+    platform = (platform or "slurm").lower()
+    is_runai = platform in ("runai", "dgxc")
     if hf_token and offline:
         raise ValueError("--hf_token and --offline cannot be used together.")
 
@@ -300,7 +303,7 @@ def main(
         custom_mounts.append(f"{pretrained_checkpoint}:{pretrained_checkpoint}")
 
     if (
-        not dgxc_cluster
+        not is_runai
         and getattr(args, "save_dir", None) is not None
         and args.save_dir
     ):
@@ -326,44 +329,42 @@ def main(
     if nccl_ub:
         custom_env_vars.update({"NCCL_NVLS_ENABLE": "1", "NCCL_CTA_POLICY": "1"})
 
-    if not dgxc_cluster:
-        executor = slurm_executor(
-            gpu=gpu,
-            account=account,
-            partition=partition,
-            log_dir=log_dir,
-            nodes=-(num_gpus // -gpus_per_node),
-            num_gpus_per_node=gpus_per_node,
-            time_limit=time_limit,
-            container_image=container_image,
-            custom_mounts=custom_mounts,
-            custom_env_vars=custom_env_vars,
-            custom_srun_args=custom_srun_args,
-            custom_bash_cmds=custom_bash_cmds,
-            gres=args.gres,
-            hf_token=hf_token,
-            offline=offline,
-            nemo_home=nemo_home,
-            additional_slurm_params=additional_slurm_params,
-            wandb_key=wandb_key,
-        )
-    else:
-        executor = dgxc_executor(
-            dgxc_base_url=dgxc_base_url,
-            dgxc_cluster=dgxc_cluster,
-            dgxc_kube_apiserver_url=dgxc_kube_apiserver_url,
-            dgxc_app_id=dgxc_app_id,
-            dgxc_app_secret=dgxc_app_secret,
-            dgxc_project_name=dgxc_project_name,
-            dgxc_pvc_claim_name=dgxc_pvc_claim_name,
-            dgxc_pvc_mount_path=dgxc_pvc_mount_path,
-            custom_env_vars=custom_env_vars,
-            nodes=-(num_gpus // -gpus_per_node),
-            num_gpus_per_node=gpus_per_node,
-            container_image=container_image,
-            wandb_key=wandb_key,
-            hf_token=hf_token,
-        )
+    executor = get_executor(
+        platform,
+        gpu=gpu,
+        num_gpus=num_gpus,
+        gpus_per_node=gpus_per_node,
+        log_dir=log_dir,
+        time_limit=time_limit,
+        container_image=container_image,
+        custom_mounts=custom_mounts,
+        custom_env_vars=custom_env_vars,
+        custom_srun_args=custom_srun_args,
+        custom_bash_cmds=custom_bash_cmds,
+        hf_token=hf_token,
+        offline=offline,
+        nemo_home=nemo_home,
+        wandb_key=wandb_key,
+        account=account,
+        partition=partition,
+        additional_slurm_params=additional_slurm_params,
+        gres=args.gres,
+        dgxc_base_url=dgxc_base_url,
+        dgxc_cluster=dgxc_cluster,
+        dgxc_kube_apiserver_url=dgxc_kube_apiserver_url,
+        dgxc_app_id=dgxc_app_id,
+        dgxc_app_secret=dgxc_app_secret,
+        dgxc_project_name=dgxc_project_name,
+        dgxc_pvc_claim_name=dgxc_pvc_claim_name,
+        dgxc_pvc_mount_path=dgxc_pvc_mount_path,
+        runai_extended_resources=getattr(args, "runai_extended_resources", None),
+        runai_annotations=getattr(args, "runai_annotations", None),
+        runai_rails_on_master=getattr(args, "runai_rails_on_master", True),
+        runai_large_shm=getattr(args, "runai_large_shm", True),
+        runai_node_pools=getattr(args, "runai_node_pools", None),
+        runai_extra_submit_args=getattr(args, "runai_extra_submit_args", None),
+        runai_print_only=getattr(args, "runai_print_only", False),
+    )
 
     plugins = []
 
@@ -406,7 +407,7 @@ def main(
             )
         )
 
-    if use_recipes and dgxc_cluster is not None:
+    if use_recipes and is_runai:
         plugins.append(
             FaultTolerancePlugin(
                 enable_ft_package=True,
@@ -432,7 +433,7 @@ def main(
     error_msg = None
     n_attempts = 0
     exp_name = (
-        exp_name[:33] if dgxc_cluster is not None else exp_name
+        exp_name[:33] if is_runai else exp_name
     )  # Some k8s clusters have a limit on the length of the experiment name.
     wandb_run_id = None
     while n_attempts <= max_retries:
@@ -644,5 +645,6 @@ if __name__ == "__main__":
         dgxc_project_name=args.dgxc_project_name,
         dgxc_pvc_claim_name=args.dgxc_pvc_claim_name,
         dgxc_pvc_mount_path=args.dgxc_pvc_mount_path,
+        platform=args.platform,
         config_variant=config_variant,
     )
