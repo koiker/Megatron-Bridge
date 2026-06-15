@@ -444,9 +444,20 @@ def runai_cli_executor(
     if custom_env_vars:
         env_vars.update(custom_env_vars)
 
+    # nemo_run versions disagree on DGXCloudExecutor's required fields: newer
+    # releases made ``kube_apiserver_url`` a required keyword-only arg, older ones
+    # don't define it at all. Pass it only when the installed base class declares
+    # it, so the CLI executor works across nemo_run versions (it's unused by the
+    # runai-CLI submission path either way).
+    _dgxc_extra: Dict[str, Any] = {}
+    _dgxc_fields = set(getattr(DGXCloudExecutor, "model_fields", None) or getattr(DGXCloudExecutor, "__dataclass_fields__", {}) or {})
+    if "kube_apiserver_url" in _dgxc_fields:
+        _dgxc_extra["kube_apiserver_url"] = ""
+
     return RunAICliExecutor(
         # DGXCloudExecutor required fields; REST ones are unused by the CLI path.
         base_url="",
+        **_dgxc_extra,
         app_id="",
         app_secret="",
         project_name=project_name,
